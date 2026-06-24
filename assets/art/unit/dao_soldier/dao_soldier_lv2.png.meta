@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "946fa58b-87c5-47a2-83c4-3bddf3406a85",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "946fa58b-87c5-47a2-83c4-3bddf3406a85@6c48a",
+      "displayName": "dao_soldier_lv2",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "946fa58b-87c5-47a2-83c4-3bddf3406a85",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "946fa58b-87c5-47a2-83c4-3bddf3406a85@f9941",
+      "displayName": "dao_soldier_lv2",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 4.5,
+        "offsetY": 1,
+        "trimX": 12,
+        "trimY": 0,
+        "width": 292,
+        "height": 1022,
+        "rawWidth": 307,
+        "rawHeight": 1024,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -146,
+            -511,
+            0,
+            146,
+            -511,
+            0,
+            -146,
+            511,
+            0,
+            146,
+            511,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            12,
+            1024,
+            304,
+            1024,
+            12,
+            2,
+            304,
+            2
+          ],
+          "nuv": [
+            0.03908794788273615,
+            0.001953125,
+            0.990228013029316,
+            0.001953125,
+            0.03908794788273615,
+            1,
+            0.990228013029316,
+            1
+          ],
+          "minPos": [
+            -146,
+            -511,
+            0
+          ],
+          "maxPos": [
+            146,
+            511,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "946fa58b-87c5-47a2-83c4-3bddf3406a85@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "946fa58b-87c5-47a2-83c4-3bddf3406a85@6c48a"
+  }
+}
