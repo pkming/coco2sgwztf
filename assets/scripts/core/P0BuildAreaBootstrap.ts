@@ -4,6 +4,7 @@ const { ccclass } = _decorator;
 
 type CellKind = 'build' | 'locked' | 'route' | 'cache';
 type UnitType = '刀' | '弓' | '枪' | '骑';
+type PieceType = UnitType | '铲';
 
 interface GridCellView {
   id: string;
@@ -16,7 +17,7 @@ interface GridCellView {
 
 interface UnitView {
   id: string;
-  type: UnitType;
+  type: PieceType;
   level: number;
   node: Node;
   currentCellId: string;
@@ -42,10 +43,9 @@ interface UnitBattleConfig {
 }
 
 const START_LIFE = 3;
-const START_FOOD = 60;
-const RECRUIT_COST = 10;
-const BASE_EXPAND_COST = 20;
-const EXPAND_COST_STEP = 5;
+const START_FOOD = 10;
+const START_REFRESH_COST = 10;
+const REFRESH_COST_GROWTH = 1.2;
 const KILL_REWARD = 6;
 const WAVE_CLEAR_REWARD = 12;
 const BASE_ENEMY_HP = 18;
@@ -88,6 +88,14 @@ const UNIT_CONFIGS: Record<UnitType, UnitBattleConfig> = {
   },
 };
 
+const PIECE_COLORS: Record<PieceType, Color> = {
+  刀: UNIT_CONFIGS.刀.color,
+  弓: UNIT_CONFIGS.弓.color,
+  枪: UNIT_CONFIGS.枪.color,
+  骑: UNIT_CONFIGS.骑.color,
+  铲: new Color(132, 91, 52, 255),
+};
+
 @ccclass('P0BuildAreaBootstrap')
 export class P0BuildAreaBootstrap extends Component {
   private root!: Node;
@@ -99,7 +107,7 @@ export class P0BuildAreaBootstrap extends Component {
   private enemies: EnemyView[] = [];
   private food = START_FOOD;
   private life = START_LIFE;
-  private recruitCost = RECRUIT_COST;
+  private refreshCost = START_REFRESH_COST;
   private expandedCount = 0;
   private killCount = 0;
   private leakCount = 0;
@@ -204,10 +212,11 @@ export class P0BuildAreaBootstrap extends Component {
 
   private drawLockedCells() {
     const lockedCells = [
-      [-3, 3], [-2, 3], [-1, 3], [0, 3],
+      [-3, 3], [-2, 3], [-1, 3], [0, 3], [1, 3], [2, 3], [3, 3],
       [-2, 1], [-2, 0], [-2, -1],
       [2, 1], [2, 0], [2, -1],
-      [-1, -2], [0, -2], [1, -2], [2, -2],
+      [-2, -2], [-1, -2], [0, -2], [1, -2], [2, -2],
+      [-2, -3], [-1, -3], [0, -3], [1, -3], [2, -3],
     ];
 
     for (const [col, row] of lockedCells) {
@@ -226,12 +235,12 @@ export class P0BuildAreaBootstrap extends Component {
     }
 
     this.label('BuildTopLabel', this.mapLayer, 0, 170, '已解锁：白格可放兵', 20, new Color(65, 45, 60, 255));
-    this.label('BuildBottomLabel', this.mapLayer, 0, -145, '外圈红紫格可铲地解锁', 20, new Color(65, 45, 60, 255));
+    this.label('BuildBottomLabel', this.mapLayer, 0, -145, '外圈紫格拖铲子解锁', 20, new Color(65, 45, 60, 255));
   }
 
   private drawLegend() {
     this.rect('LegendBg', this.mapLayer, 0, -392, 260, 66, new Color(255, 255, 255, 190));
-    this.label('Legend1', this.mapLayer, 0, -374, '白=放兵  紫=解锁  红=路线', 18, new Color(45, 35, 45, 255));
+    this.label('Legend1', this.mapLayer, 0, -374, '白=放兵  紫=铲地  红=路线', 18, new Color(45, 35, 45, 255));
     this.label('Legend2', this.mapLayer, 0, -400, '先守中间，再向外铲地', 18, new Color(45, 35, 45, 255));
   }
 
@@ -244,8 +253,8 @@ export class P0BuildAreaBootstrap extends Component {
       this.cacheCell('cache_' + index, x, 82);
     }
 
-    const recruitButton = this.button('RecruitButton', -215, -28, 150, 74, '征兵\n消耗' + RECRUIT_COST);
-    recruitButton.on(Node.EventType.TOUCH_END, this.recruitUnit, this);
+    const recruitButton = this.button('RecruitButton', -215, -28, 150, 74, '刷新\n消耗' + this.refreshCost);
+    recruitButton.on(Node.EventType.TOUCH_END, this.refreshShop, this);
 
     const dismissButton = this.button('DismissButton', 0, -28, 150, 74, '遣散\n返还' + DISMISS_REFUND);
     dismissButton.on(Node.EventType.TOUCH_END, this.dismissUnit, this);
@@ -253,7 +262,7 @@ export class P0BuildAreaBootstrap extends Component {
     const battleButton = this.button('BattleButton', 215, -28, 150, 74, '开始战斗');
     battleButton.on(Node.EventType.TOUCH_END, this.startBattle, this);
 
-    this.bottomTipLabel = this.label('BottomTip', this.bottomLayer, 0, -102, '征兵进缓存；缓存满时可遣散低级兵', 20, new Color(80, 60, 75, 255));
+    this.bottomTipLabel = this.label('BottomTip', this.bottomLayer, 0, -102, '刷新一次出5个：兵或铲子', 20, new Color(80, 60, 75, 255));
   }
 
   private startBattle() {
@@ -375,6 +384,7 @@ export class P0BuildAreaBootstrap extends Component {
 
   private updateUnitAttacks(deltaTime: number) {
     for (const unit of this.units) {
+      if (unit.type === '铲') continue;
       const cell = this.cells.find((item) => item.id === unit.currentCellId);
       if (!cell || cell.kind !== 'build') continue;
 
@@ -384,12 +394,14 @@ export class P0BuildAreaBootstrap extends Component {
       const target = this.findNearestEnemy(unit);
       if (!target) continue;
 
-      unit.attackCooldown = UNIT_CONFIGS[unit.type].attackInterval;
-      this.damageEnemy(target, this.getUnitDamage(unit), unit.type);
+      const unitType = unit.type;
+      unit.attackCooldown = UNIT_CONFIGS[unitType].attackInterval;
+      this.damageEnemy(target, this.getUnitDamage(unit, unitType), unitType);
     }
   }
 
   private findNearestEnemy(unit: UnitView): EnemyView | null {
+    if (unit.type === '铲') return null;
     let best: EnemyView | null = null;
     let bestDistance = Number.MAX_SAFE_INTEGER;
     const unitPosition = unit.node.position;
@@ -406,8 +418,8 @@ export class P0BuildAreaBootstrap extends Component {
     return best;
   }
 
-  private getUnitDamage(unit: UnitView): number {
-    return UNIT_CONFIGS[unit.type].damage * unit.level;
+  private getUnitDamage(unit: UnitView, unitType: UnitType): number {
+    return UNIT_CONFIGS[unitType].damage * unit.level;
   }
 
   private damageEnemy(enemy: EnemyView, damage: number, unitType: UnitType) {
@@ -435,30 +447,54 @@ export class P0BuildAreaBootstrap extends Component {
       .start();
   }
 
-  private recruitUnit() {
+  private refreshShop() {
     if (this.gameFailed) {
-      this.showTip('本局已失败：不能继续征兵');
+      this.showTip('本局已失败：不能继续刷新');
       return;
     }
 
-    const emptyCache = this.cells.find((cell) => cell.kind === 'cache' && !cell.unitId);
-    if (!emptyCache) {
-      this.showTip('缓存区已满：拖到白格或遣散低级兵');
+    if (this.food < this.refreshCost) {
+      this.showTip('包子不足：刷新需要 ' + this.refreshCost);
       return;
     }
 
-    if (this.food < this.recruitCost) {
-      this.showTip('包子不足：战斗奖励后才能继续征兵');
-      return;
-    }
-
-    this.food -= this.recruitCost;
+    this.clearCachePieces();
+    this.food -= this.refreshCost;
     this.foodValueLabel.string = String(this.food);
 
-    const unitTypes: UnitType[] = ['刀', '弓', '枪', '骑'];
-    const unitType = unitTypes[Math.floor(Math.random() * unitTypes.length)];
-    this.drawUnit(unitType, emptyCache);
-    this.showTip('征兵获得：' + unitType + ' Lv1，拖到白格即可布阵');
+    const cacheCells = this.cells.filter((cell) => cell.kind === 'cache');
+    for (const cell of cacheCells) {
+      this.drawPiece(this.pickRandomPiece(), cell);
+    }
+
+    const paid = this.refreshCost;
+    this.refreshCost = Math.ceil(this.refreshCost * REFRESH_COST_GROWTH);
+    this.refreshButtonText();
+    this.showTip('刷新消耗 ' + paid + '：获得5个候选');
+  }
+
+  private clearCachePieces() {
+    const cacheIds = new Set(this.cells.filter((cell) => cell.kind === 'cache').map((cell) => cell.id));
+    for (const cell of this.cells) {
+      if (cell.kind === 'cache') cell.unitId = null;
+    }
+
+    for (const unit of [...this.units]) {
+      if (!cacheIds.has(unit.currentCellId)) continue;
+      if (this.draggedUnit === unit) this.draggedUnit = null;
+      unit.node.destroy();
+      this.units = this.units.filter((item) => item.id !== unit.id);
+    }
+  }
+
+  private pickRandomPiece(): PieceType {
+    const pool: PieceType[] = ['刀', '弓', '枪', '骑', '铲'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  private refreshButtonText() {
+    const label = this.bottomLayer.getChildByName('RecruitButtonLabel')?.getComponent(Label);
+    if (label) label.string = '刷新\n消耗' + this.refreshCost;
   }
 
   private dismissUnit() {
@@ -493,6 +529,7 @@ export class P0BuildAreaBootstrap extends Component {
 
     let target: UnitView | null = null;
     for (const unit of this.units) {
+      if (unit.type === '铲') continue;
       const cell = this.cells.find((item) => item.id === unit.currentCellId);
       if (cell?.kind !== 'build') continue;
       if (!target || unit.level < target.level) target = unit;
@@ -500,12 +537,12 @@ export class P0BuildAreaBootstrap extends Component {
     return target;
   }
 
-  private drawUnit(unitType: UnitType, cell: GridCellView) {
+  private drawPiece(pieceType: PieceType, cell: GridCellView) {
     const unit: UnitView = {
       id: 'unit_' + this.nextUnitId,
-      type: unitType,
+      type: pieceType,
       level: 1,
-      node: this.rect('unit_' + this.nextUnitId, this.root, cell.x, cell.y, UNIT_SIZE, UNIT_SIZE, UNIT_CONFIGS[unitType].color),
+      node: this.rect('unit_' + this.nextUnitId, this.root, cell.x, cell.y, UNIT_SIZE, UNIT_SIZE, PIECE_COLORS[pieceType]),
       currentCellId: cell.id,
       homeX: cell.x,
       homeY: cell.y,
@@ -513,8 +550,8 @@ export class P0BuildAreaBootstrap extends Component {
     };
     this.nextUnitId += 1;
     cell.unitId = unit.id;
-    this.label(unit.id + '_label', unit.node, 0, 8, unitType, 32, Color.WHITE);
-    this.label(unit.id + '_level', unit.node, 0, -25, 'Lv1', 15, Color.WHITE);
+    this.label(unit.id + '_label', unit.node, 0, 8, pieceType, 32, Color.WHITE);
+    this.label(unit.id + '_level', unit.node, 0, -25, pieceType === '铲' ? '开地' : 'Lv1', 15, Color.WHITE);
     unit.node.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onUnitTouchStart(event, unit), this);
     unit.node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => this.onUnitTouchMove(event, unit), this);
     unit.node.on(Node.EventType.TOUCH_END, () => this.onUnitTouchEnd(unit), this);
@@ -528,7 +565,11 @@ export class P0BuildAreaBootstrap extends Component {
     const local = this.getRootPoint(event);
     Vec3.subtract(this.dragOffset, unit.node.position, local);
     unit.node.setSiblingIndex(999);
-    this.showTip('拖拽 ' + unit.type + ' Lv' + unit.level + ' 到白格，拖到已有单位可交换');
+    if (unit.type === '铲') {
+      this.showTip('拖拽铲子到紫色格，解锁为白格');
+    } else {
+      this.showTip('拖拽 ' + unit.type + ' Lv' + unit.level + ' 到白格，拖到已有单位可交换');
+    }
   }
 
   private onUnitTouchMove(event: EventTouch, unit: UnitView) {
@@ -542,6 +583,11 @@ export class P0BuildAreaBootstrap extends Component {
     if (this.gameFailed || this.draggedUnit !== unit) return;
     this.draggedUnit = null;
 
+    if (unit.type === '铲') {
+      this.useShovel(unit);
+      return;
+    }
+
     const target = this.findNearestBuildCell(unit.node.position);
     if (!target) {
       this.returnUnitHome(unit, '只能放到白格');
@@ -550,7 +596,7 @@ export class P0BuildAreaBootstrap extends Component {
 
     if (target.unitId) {
       const other = this.units.find((item) => item.id === target.unitId);
-      if (other && other.type === unit.type && other.level === unit.level) {
+      if (other && other.type !== '铲' && unit.type !== '铲' && other.type === unit.type && other.level === unit.level) {
         this.mergeUnits(unit, other, target);
         return;
       }
@@ -563,11 +609,40 @@ export class P0BuildAreaBootstrap extends Component {
     this.showTip(unit.type + ' Lv' + unit.level + ' 已放入白格');
   }
 
+  private useShovel(unit: UnitView) {
+    const target = this.findNearestLockedCell(unit.node.position);
+    if (!target) {
+      this.returnUnitHome(unit, '铲子只能拖到紫色待解锁格');
+      return;
+    }
+
+    const sourceCell = this.cells.find((cell) => cell.id === unit.currentCellId);
+    if (sourceCell) sourceCell.unitId = null;
+    this.units = this.units.filter((item) => item.id !== unit.id);
+    unit.node.destroy();
+    this.unlockCell(target);
+    this.showTip('铲地成功：紫格变白格，可放塔丕');
+  }
+
   private findNearestBuildCell(position: Vec3): GridCellView | null {
     let best: GridCellView | null = null;
     let bestDistance = Number.MAX_SAFE_INTEGER;
     for (const cell of this.cells) {
       if (cell.kind !== 'build') continue;
+      const distance = Vec3.distance(position, new Vec3(cell.x, cell.y, 0));
+      if (distance < bestDistance) {
+        best = cell;
+        bestDistance = distance;
+      }
+    }
+    return bestDistance <= DROP_DISTANCE ? best : null;
+  }
+
+  private findNearestLockedCell(position: Vec3): GridCellView | null {
+    let best: GridCellView | null = null;
+    let bestDistance = Number.MAX_SAFE_INTEGER;
+    for (const cell of this.cells) {
+      if (cell.kind !== 'locked') continue;
       const distance = Vec3.distance(position, new Vec3(cell.x, cell.y, 0));
       if (distance < bestDistance) {
         best = cell;
@@ -588,6 +663,11 @@ export class P0BuildAreaBootstrap extends Component {
   }
 
   private mergeUnits(sourceUnit: UnitView, targetUnit: UnitView, targetCell: GridCellView) {
+    if (sourceUnit.type === '铲' || targetUnit.type === '铲') {
+      this.returnUnitHome(sourceUnit, '铲子不能合成');
+      return;
+    }
+
     const sourceCell = this.cells.find((cell) => cell.id === sourceUnit.currentCellId);
     if (!sourceCell) {
       this.returnUnitHome(sourceUnit, '合成失败');
@@ -664,7 +744,7 @@ export class P0BuildAreaBootstrap extends Component {
     const rootY = this.mapLayer.position.y + localY;
     const node = this.rect(id, this.mapLayer, localX, localY, size, size, color);
     this.stroke(node, size, size, new Color(150, 105, 135, 255));
-    const labelText = kind === 'locked' ? '铲' + this.getExpandCost() : text;
+    const labelText = kind === 'locked' ? '铲' : text;
     const cellLabel = this.label(id + '_label', this.mapLayer, localX, localY, labelText, 20, new Color(75, 55, 70, 255));
     const cell: GridCellView = { id, kind, node, x: rootX, y: rootY, unitId: null };
     this.cells.push(cell);
@@ -682,22 +762,7 @@ export class P0BuildAreaBootstrap extends Component {
     }
 
     if (cell.kind !== 'locked') return;
-
-    const cost = this.getExpandCost();
-    if (this.food < cost) {
-      this.showTip('包子不足：扩地需要 ' + cost);
-      return;
-    }
-
-    this.food -= cost;
-    this.foodValueLabel.string = String(this.food);
-    cell.kind = 'build';
-    this.expandedCount += 1;
-    this.repaintCell(cell, Color.WHITE, new Color(190, 180, 190, 255));
-    this.setCellLabel(cell, '空', new Color(75, 55, 70, 255));
-    this.refreshLockedCellLabels();
-    this.refreshRunStats();
-    this.showTip('扩地成功：-' + cost + ' 包子，+1 布阵位');
+    this.showTip('需要把底部铲子拖到紫色格才能解锁');
   }
 
   private refreshRunStats() {
@@ -706,15 +771,12 @@ export class P0BuildAreaBootstrap extends Component {
     this.runStatsLabel.string = '击杀 ' + this.killCount + ' · 漏怪 ' + this.leakCount + ' · 扩地 ' + this.expandedCount + ' · 布阵位 ' + buildCount;
   }
 
-  private getExpandCost(): number {
-    return BASE_EXPAND_COST + this.expandedCount * EXPAND_COST_STEP;
-  }
-
-  private refreshLockedCellLabels() {
-    const labelText = '铲' + this.getExpandCost();
-    for (const cell of this.cells) {
-      if (cell.kind === 'locked') this.setCellLabel(cell, labelText, new Color(75, 55, 70, 255));
-    }
+  private unlockCell(cell: GridCellView) {
+    cell.kind = 'build';
+    this.expandedCount += 1;
+    this.repaintCell(cell, Color.WHITE, new Color(190, 180, 190, 255));
+    this.setCellLabel(cell, '空', new Color(75, 55, 70, 255));
+    this.refreshRunStats();
   }
 
   private repaintCell(cell: GridCellView, fillColor: Color, strokeColor: Color) {
