@@ -35,6 +35,7 @@ interface EnemyView {
 }
 
 const START_LIFE = 3;
+const EXPAND_COST = 20;
 
 @ccclass('P0BuildAreaBootstrap')
 export class P0BuildAreaBootstrap extends Component {
@@ -177,7 +178,7 @@ export class P0BuildAreaBootstrap extends Component {
   private drawLegend() {
     this.rect('LegendBg', this.mapLayer, 0, -5, 220, 94, new Color(255, 255, 255, 190));
     this.label('Legend1', this.mapLayer, 0, 24, '白格=可放兵', 18, new Color(45, 35, 45, 255));
-    this.label('Legend2', this.mapLayer, 0, -2, '红格=未解锁', 18, new Color(45, 35, 45, 255));
+    this.label('Legend2', this.mapLayer, 0, -2, '红格=点击铲地', 18, new Color(45, 35, 45, 255));
     this.label('Legend3', this.mapLayer, 0, -28, '粉格=敌人路线', 18, new Color(45, 35, 45, 255));
   }
 
@@ -558,8 +559,65 @@ export class P0BuildAreaBootstrap extends Component {
     const rootY = this.mapLayer.position.y + localY;
     const node = this.rect(id, this.mapLayer, localX, localY, size, size, color);
     this.stroke(node, size, size, new Color(150, 105, 135, 255));
-    this.label(id + '_label', this.mapLayer, localX, localY, text, 20, new Color(75, 55, 70, 255));
-    this.cells.push({ id, kind, node, x: rootX, y: rootY, unitId: null });
+    const labelText = kind === 'locked' ? '铲' + EXPAND_COST : text;
+    const cellLabel = this.label(id + '_label', this.mapLayer, localX, localY, labelText, 20, new Color(75, 55, 70, 255));
+    const cell: GridCellView = { id, kind, node, x: rootX, y: rootY, unitId: null };
+    this.cells.push(cell);
+
+    if (kind === 'locked') {
+      node.on(Node.EventType.TOUCH_END, () => this.expandCell(cell), this);
+      cellLabel.node.on(Node.EventType.TOUCH_END, () => this.expandCell(cell), this);
+    }
+  }
+
+  private expandCell(cell: GridCellView) {
+    if (this.gameFailed) {
+      this.showTip('本局已失败：不能继续扩地');
+      return;
+    }
+
+    if (cell.kind !== 'locked') return;
+
+    if (this.food < EXPAND_COST) {
+      this.showTip('包子不足：扩地需要 ' + EXPAND_COST);
+      return;
+    }
+
+    this.food -= EXPAND_COST;
+    this.foodValueLabel.string = String(this.food);
+    cell.kind = 'build';
+    this.repaintCell(cell, Color.WHITE, new Color(190, 180, 190, 255));
+    this.setCellLabel(cell, '空', new Color(75, 55, 70, 255));
+    this.showTip('扩地成功：+1 布阵位');
+  }
+
+  private repaintCell(cell: GridCellView, fillColor: Color, strokeColor: Color) {
+    const graphics = cell.node.getComponent(Graphics);
+    if (!graphics) return;
+
+    const transform = cell.node.getComponent(UITransform);
+    const width = transform?.width ?? 68;
+    const height = transform?.height ?? 68;
+    graphics.clear();
+    graphics.fillColor = fillColor;
+    graphics.rect(-width / 2, -height / 2, width, height);
+    graphics.fill();
+    graphics.lineWidth = 3;
+    graphics.strokeColor = strokeColor;
+    graphics.rect(-width / 2, -height / 2, width, height);
+    graphics.stroke();
+  }
+
+  private setCellLabel(cell: GridCellView, text: string, color: Color) {
+    const labelNode = this.mapLayer.getChildByName(cell.id + '_label');
+    const label = labelNode?.getComponent(Label);
+    if (!label) return;
+    label.string = text;
+    label.color = color;
+  }
+
+  private showTip(message: string) {
+    if (this.bottomTipLabel) this.bottomTipLabel.string = message;
   }
 
   private button(name: string, x: number, y: number, width: number, height: number, text: string): Node {
