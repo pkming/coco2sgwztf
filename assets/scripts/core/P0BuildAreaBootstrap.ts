@@ -46,6 +46,7 @@ const ENEMY_HP_GROWTH = 4;
 const BASE_ENEMY_SPEED = 86;
 const ENEMY_SPEED_GROWTH = 2;
 const BASE_ENEMY_COUNT = 3;
+const DISMISS_REFUND = 2;
 
 @ccclass('P0BuildAreaBootstrap')
 export class P0BuildAreaBootstrap extends Component {
@@ -60,6 +61,8 @@ export class P0BuildAreaBootstrap extends Component {
   private life = START_LIFE;
   private recruitCost = RECRUIT_COST;
   private expandedCount = 0;
+  private killCount = 0;
+  private leakCount = 0;
   private nextUnitId = 1;
   private nextEnemyId = 1;
   private wave = 1;
@@ -72,6 +75,7 @@ export class P0BuildAreaBootstrap extends Component {
   private foodValueLabel!: Label;
   private lifeValueLabel!: Label;
   private waveLabel!: Label;
+  private runStatsLabel!: Label;
   private bottomTipLabel!: Label;
   private draggedUnit: UnitView | null = null;
   private dragOffset = new Vec3();
@@ -120,6 +124,7 @@ export class P0BuildAreaBootstrap extends Component {
     this.buildTopBar();
     this.buildMapArea();
     this.buildRecruitAndActions();
+    this.refreshRunStats();
   }
 
   private buildTopBar() {
@@ -129,7 +134,8 @@ export class P0BuildAreaBootstrap extends Component {
     this.waveLabel = this.label('WaveText', this.topLayer, 0, 18, '第1波', 30, new Color(40, 35, 40, 255));
     this.label('LifeIcon', this.topLayer, 190, 18, '生命', 24, new Color(40, 35, 40, 255));
     this.lifeValueLabel = this.label('LifeValue', this.topLayer, 260, 18, String(this.life), 32, Color.WHITE);
-    this.label('RuleTip', this.topLayer, 0, -35, 'P0：只用色块验证玩法，不使用美术资源', 20, new Color(80, 60, 75, 255));
+    this.runStatsLabel = this.label('RunStatsText', this.topLayer, 0, -35, '', 20, new Color(80, 60, 75, 255));
+    this.refreshRunStats();
   }
 
   private buildMapArea() {
@@ -202,13 +208,16 @@ export class P0BuildAreaBootstrap extends Component {
       this.cacheCell('cache_' + index, x, 82);
     }
 
-    const recruitButton = this.button('RecruitButton', -160, -28, 190, 74, '征兵\n消耗' + RECRUIT_COST);
+    const recruitButton = this.button('RecruitButton', -215, -28, 150, 74, '征兵\n消耗' + RECRUIT_COST);
     recruitButton.on(Node.EventType.TOUCH_END, this.recruitUnit, this);
 
-    const battleButton = this.button('BattleButton', 160, -28, 190, 74, '开始战斗');
+    const dismissButton = this.button('DismissButton', 0, -28, 150, 74, '遣散\n返还' + DISMISS_REFUND);
+    dismissButton.on(Node.EventType.TOUCH_END, this.dismissUnit, this);
+
+    const battleButton = this.button('BattleButton', 215, -28, 150, 74, '开始战斗');
     battleButton.on(Node.EventType.TOUCH_END, this.startBattle, this);
 
-    this.bottomTipLabel = this.label('BottomTip', this.bottomLayer, 0, -102, '点击征兵：随机单位进入5个缓存格', 20, new Color(80, 60, 75, 255));
+    this.bottomTipLabel = this.label('BottomTip', this.bottomLayer, 0, -102, '征兵进缓存；缓存满时可遣散低级兵', 20, new Color(80, 60, 75, 255));
   }
 
   private startBattle() {
@@ -298,8 +307,10 @@ export class P0BuildAreaBootstrap extends Component {
   private handleEnemyReachEnd(enemy: EnemyView, enemyIndex: number) {
     enemy.node.destroy();
     this.enemies.splice(enemyIndex, 1);
+    this.leakCount += 1;
     this.life = Math.max(0, this.life - 1);
     this.refreshLife();
+    this.refreshRunStats();
 
     if (this.life <= 0) {
       this.failGame();
@@ -370,8 +381,10 @@ export class P0BuildAreaBootstrap extends Component {
     const index = this.enemies.indexOf(enemy);
     if (index >= 0) this.enemies.splice(index, 1);
     enemy.node.destroy();
+    this.killCount += 1;
     this.food += KILL_REWARD;
     this.foodValueLabel.string = String(this.food);
+    this.refreshRunStats();
     this.showTip('击杀敌人：包子 +' + KILL_REWARD);
   }
 
@@ -383,7 +396,7 @@ export class P0BuildAreaBootstrap extends Component {
 
     const emptyCache = this.cells.find((cell) => cell.kind === 'cache' && !cell.unitId);
     if (!emptyCache) {
-      this.showTip('缓存区已满：请先拖到白格');
+      this.showTip('缓存区已满：拖到白格或遣散低级兵');
       return;
     }
 
@@ -399,6 +412,45 @@ export class P0BuildAreaBootstrap extends Component {
     const unitType = unitTypes[Math.floor(Math.random() * unitTypes.length)];
     this.drawUnit(unitType, emptyCache);
     this.showTip('征兵获得：' + unitType + ' Lv1，拖到白格即可布阵');
+  }
+
+  private dismissUnit() {
+    if (this.gameFailed) {
+      this.showTip('本局已失败：不能继续遣散');
+      return;
+    }
+
+    const unit = this.findDismissTarget();
+    if (!unit) {
+      this.showTip('没有可遣散的单位');
+      return;
+    }
+
+    const cell = this.cells.find((item) => item.id === unit.currentCellId);
+    if (cell) cell.unitId = null;
+
+    this.draggedUnit = this.draggedUnit === unit ? null : this.draggedUnit;
+    this.units = this.units.filter((item) => item.id !== unit.id);
+    unit.node.destroy();
+    this.food += DISMISS_REFUND;
+    this.foodValueLabel.string = String(this.food);
+    this.showTip('遣散 ' + unit.type + ' Lv' + unit.level + '：包子 +' + DISMISS_REFUND);
+  }
+
+  private findDismissTarget(): UnitView | null {
+    const cacheUnits = this.units.filter((unit) => {
+      const cell = this.cells.find((item) => item.id === unit.currentCellId);
+      return cell?.kind === 'cache';
+    });
+    if (cacheUnits.length > 0) return cacheUnits[cacheUnits.length - 1];
+
+    let target: UnitView | null = null;
+    for (const unit of this.units) {
+      const cell = this.cells.find((item) => item.id === unit.currentCellId);
+      if (cell?.kind !== 'build') continue;
+      if (!target || unit.level < target.level) target = unit;
+    }
+    return target;
   }
 
   private drawUnit(unitType: UnitType, cell: GridCellView) {
@@ -603,7 +655,14 @@ export class P0BuildAreaBootstrap extends Component {
     this.repaintCell(cell, Color.WHITE, new Color(190, 180, 190, 255));
     this.setCellLabel(cell, '空', new Color(75, 55, 70, 255));
     this.refreshLockedCellLabels();
+    this.refreshRunStats();
     this.showTip('扩地成功：-' + cost + ' 包子，+1 布阵位');
+  }
+
+  private refreshRunStats() {
+    if (!this.runStatsLabel) return;
+    const buildCount = this.cells.filter((cell) => cell.kind === 'build').length;
+    this.runStatsLabel.string = '击杀 ' + this.killCount + ' · 漏怪 ' + this.leakCount + ' · 扩地 ' + this.expandedCount + ' · 布阵位 ' + buildCount;
   }
 
   private getExpandCost(): number {
