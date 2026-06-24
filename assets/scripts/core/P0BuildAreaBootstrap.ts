@@ -1,4 +1,4 @@
-import { _decorator, Camera, Canvas, Color, Component, EventTouch, Graphics, Label, Layers, Node, UITransform, Vec3, view } from 'cc';
+import { _decorator, Camera, Canvas, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3, view } from 'cc';
 
 const { ccclass } = _decorator;
 
@@ -34,6 +34,13 @@ interface EnemyView {
   hp: number;
 }
 
+interface UnitBattleConfig {
+  color: Color;
+  damage: number;
+  range: number;
+  attackInterval: number;
+}
+
 const START_LIFE = 3;
 const START_FOOD = 60;
 const RECRUIT_COST = 10;
@@ -47,6 +54,39 @@ const BASE_ENEMY_SPEED = 86;
 const ENEMY_SPEED_GROWTH = 2;
 const BASE_ENEMY_COUNT = 3;
 const DISMISS_REFUND = 2;
+const GRID_GAP = 94;
+const MAP_CELL_SIZE = 82;
+const UNIT_SIZE = 74;
+const CACHE_CELL_SIZE = 78;
+const CACHE_GAP = 86;
+const DROP_DISTANCE = 58;
+
+const UNIT_CONFIGS: Record<UnitType, UnitBattleConfig> = {
+  刀: {
+    color: new Color(218, 68, 56, 255),
+    damage: 8,
+    range: 150,
+    attackInterval: 0.75,
+  },
+  弓: {
+    color: new Color(69, 132, 230, 255),
+    damage: 5,
+    range: 230,
+    attackInterval: 0.9,
+  },
+  枪: {
+    color: new Color(61, 174, 112, 255),
+    damage: 6,
+    range: 180,
+    attackInterval: 0.8,
+  },
+  骑: {
+    color: new Color(232, 181, 54, 255),
+    damage: 7,
+    range: 165,
+    attackInterval: 0.65,
+  },
+};
 
 @ccclass('P0BuildAreaBootstrap')
 export class P0BuildAreaBootstrap extends Component {
@@ -148,27 +188,26 @@ export class P0BuildAreaBootstrap extends Component {
 
   private drawRouteCells() {
     const routeCells = [
-      [-3, 3], [-2, 3], [-1, 3], [0, 3], [1, 3], [2, 3],
-      [2, 2], [2, 1], [1, 1], [0, 1], [-1, 1], [-2, 1],
-      [-2, 0], [-2, -1], [-1, -1], [0, -1], [1, -1], [2, -1],
-      [2, -2], [2, -3], [1, -3], [0, -3], [-1, -3], [-2, -3], [-3, -3],
+      [-3, 2], [-2, 2], [-1, 2], [0, 2], [1, 2],
+      [1, 1], [1, 0], [0, 0], [-1, 0],
+      [-1, -1], [-1, -2], [-2, -2], [-3, -2],
     ];
 
     for (const [col, row] of routeCells) {
       this.gridCell('route_' + col + '_' + row, col, row, 'route', '路', new Color(245, 179, 212, 255));
     }
 
-    this.enemyPath = routeCells.map(([col, row]) => new Vec3(this.mapLayer.position.x + col * 78, this.mapLayer.position.y + row * 78, 0));
-    this.label('Entrance', this.mapLayer, 275, 360, '入口', 22, new Color(45, 35, 45, 255));
-    this.label('Exit', this.mapLayer, -275, -360, '终点', 22, new Color(45, 35, 45, 255));
+    this.enemyPath = routeCells.map(([col, row]) => new Vec3(this.mapLayer.position.x + col * GRID_GAP, this.mapLayer.position.y + row * GRID_GAP, 0));
+    this.label('Entrance', this.mapLayer, -315, 240, '入口', 22, new Color(45, 35, 45, 255));
+    this.label('Exit', this.mapLayer, -315, -240, '终点', 22, new Color(45, 35, 45, 255));
   }
 
   private drawLockedCells() {
     const lockedCells = [
-      [-3, 2], [-2, 2], [-1, 2],
-      [-3, 1], [-3, 0], [-1, 0], [0, 0], [1, 0],
-      [-3, -1], [3, 1], [3, 0], [3, -1],
-      [-3, -2], [-2, -2], [-1, -2], [0, -2], [1, -2], [3, -2],
+      [-3, 1], [-2, 1], [-1, 1], [0, 1],
+      [-3, 0], [-2, 0], [2, 0], [3, 0],
+      [-3, -1], [-2, -1], [0, -1], [1, -1],
+      [0, -2], [1, -2], [2, -2], [3, -2],
     ];
 
     for (const [col, row] of lockedCells) {
@@ -188,8 +227,8 @@ export class P0BuildAreaBootstrap extends Component {
       this.gridCell('build_' + col + '_' + row, col, row, 'build', '空', Color.WHITE);
     }
 
-    this.label('BuildTopLabel', this.mapLayer, 0, 395, '上布阵区：白格可放兵', 20, new Color(65, 45, 60, 255));
-    this.label('BuildBottomLabel', this.mapLayer, 0, -395, '下布阵区：白格可放兵', 20, new Color(65, 45, 60, 255));
+    this.label('BuildTopLabel', this.mapLayer, 0, 420, '上布阵区：白格可放兵', 20, new Color(65, 45, 60, 255));
+    this.label('BuildBottomLabel', this.mapLayer, 0, -420, '下布阵区：白格可放兵', 20, new Color(65, 45, 60, 255));
   }
 
   private drawLegend() {
@@ -204,7 +243,7 @@ export class P0BuildAreaBootstrap extends Component {
     this.label('CampIcon', this.bottomLayer, -295, 82, '营', 28, new Color(70, 55, 65, 255));
 
     for (let index = 0; index < 5; index++) {
-      const x = -196 + index * 82;
+      const x = -200 + index * CACHE_GAP;
       this.cacheCell('cache_' + index, x, 82);
     }
 
@@ -271,10 +310,10 @@ export class P0BuildAreaBootstrap extends Component {
     const start = this.enemyPath[0];
     const id = 'enemy_' + this.nextEnemyId;
     this.nextEnemyId += 1;
-    const node = this.rect(id, this.root, start.x, start.y, 46, 46, new Color(35, 35, 38, 255));
-    this.label(id + '_label', node, 0, 8, '兵', 18, Color.WHITE);
+    const node = this.rect(id, this.root, start.x, start.y, 54, 54, new Color(35, 35, 38, 255));
+    this.label(id + '_label', node, 0, 10, '兵', 20, Color.WHITE);
     const hp = BASE_ENEMY_HP + (this.wave - 1) * ENEMY_HP_GROWTH;
-    const label = this.label(id + '_hp', node, 0, -14, String(hp), 13, Color.WHITE);
+    const label = this.label(id + '_hp', node, 0, -16, String(hp), 14, Color.WHITE);
     const speed = BASE_ENEMY_SPEED + (this.wave - 1) * ENEMY_SPEED_GROWTH;
     this.enemies.push({ id, node, label, pathIndex: 0, speed, hp });
   }
@@ -348,8 +387,8 @@ export class P0BuildAreaBootstrap extends Component {
       const target = this.findNearestEnemy(unit);
       if (!target) continue;
 
-      unit.attackCooldown = 0.8;
-      this.damageEnemy(target, this.getUnitDamage(unit));
+      unit.attackCooldown = UNIT_CONFIGS[unit.type].attackInterval;
+      this.damageEnemy(target, this.getUnitDamage(unit), unit.type);
     }
   }
 
@@ -357,10 +396,11 @@ export class P0BuildAreaBootstrap extends Component {
     let best: EnemyView | null = null;
     let bestDistance = Number.MAX_SAFE_INTEGER;
     const unitPosition = unit.node.position;
+    const range = UNIT_CONFIGS[unit.type].range;
 
     for (const enemy of this.enemies) {
       const distance = Vec3.distance(unitPosition, enemy.node.position);
-      if (distance <= 170 && distance < bestDistance) {
+      if (distance <= range && distance < bestDistance) {
         best = enemy;
         bestDistance = distance;
       }
@@ -370,12 +410,13 @@ export class P0BuildAreaBootstrap extends Component {
   }
 
   private getUnitDamage(unit: UnitView): number {
-    return 4 * unit.level;
+    return UNIT_CONFIGS[unit.type].damage * unit.level;
   }
 
-  private damageEnemy(enemy: EnemyView, damage: number) {
+  private damageEnemy(enemy: EnemyView, damage: number, unitType: UnitType) {
     enemy.hp -= damage;
     enemy.label.string = String(Math.max(0, enemy.hp));
+    this.showDamageText(enemy.node.position, damage, UNIT_CONFIGS[unitType].color);
     if (enemy.hp > 0) return;
 
     const index = this.enemies.indexOf(enemy);
@@ -386,6 +427,15 @@ export class P0BuildAreaBootstrap extends Component {
     this.foodValueLabel.string = String(this.food);
     this.refreshRunStats();
     this.showTip('击杀敌人：包子 +' + KILL_REWARD);
+  }
+
+  private showDamageText(position: Vec3, damage: number, color: Color) {
+    const label = this.label('DamageText', this.root, position.x, position.y + 34, '-' + damage, 24, color);
+    label.node.setSiblingIndex(999);
+    tween(label.node)
+      .by(0.45, { position: new Vec3(0, 34, 0) })
+      .call(() => label.node.destroy())
+      .start();
   }
 
   private recruitUnit() {
@@ -454,17 +504,11 @@ export class P0BuildAreaBootstrap extends Component {
   }
 
   private drawUnit(unitType: UnitType, cell: GridCellView) {
-    const colorMap: Record<UnitType, Color> = {
-      刀: new Color(210, 70, 60, 255),
-      弓: new Color(70, 120, 220, 255),
-      枪: new Color(70, 170, 100, 255),
-      骑: new Color(230, 185, 55, 255),
-    };
     const unit: UnitView = {
       id: 'unit_' + this.nextUnitId,
       type: unitType,
       level: 1,
-      node: this.rect('unit_' + this.nextUnitId, this.root, cell.x, cell.y, 62, 62, colorMap[unitType]),
+      node: this.rect('unit_' + this.nextUnitId, this.root, cell.x, cell.y, UNIT_SIZE, UNIT_SIZE, UNIT_CONFIGS[unitType].color),
       currentCellId: cell.id,
       homeX: cell.x,
       homeY: cell.y,
@@ -472,8 +516,8 @@ export class P0BuildAreaBootstrap extends Component {
     };
     this.nextUnitId += 1;
     cell.unitId = unit.id;
-    this.label(unit.id + '_label', unit.node, 0, 6, unitType, 28, Color.WHITE);
-    this.label(unit.id + '_level', unit.node, 0, -21, 'Lv1', 14, Color.WHITE);
+    this.label(unit.id + '_label', unit.node, 0, 8, unitType, 32, Color.WHITE);
+    this.label(unit.id + '_level', unit.node, 0, -25, 'Lv1', 15, Color.WHITE);
     unit.node.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onUnitTouchStart(event, unit), this);
     unit.node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => this.onUnitTouchMove(event, unit), this);
     unit.node.on(Node.EventType.TOUCH_END, () => this.onUnitTouchEnd(unit), this);
@@ -533,7 +577,7 @@ export class P0BuildAreaBootstrap extends Component {
         bestDistance = distance;
       }
     }
-    return bestDistance <= 48 ? best : null;
+    return bestDistance <= DROP_DISTANCE ? best : null;
   }
 
   private moveUnitToCell(unit: UnitView, target: GridCellView) {
@@ -609,16 +653,16 @@ export class P0BuildAreaBootstrap extends Component {
   private cacheCell(id: string, x: number, y: number) {
     const rootX = this.bottomLayer.position.x + x;
     const rootY = this.bottomLayer.position.y + y;
-    const node = this.rect(id, this.bottomLayer, x, y, 72, 72, Color.WHITE);
-    this.stroke(node, 72, 72, new Color(190, 180, 190, 255));
+    const node = this.rect(id, this.bottomLayer, x, y, CACHE_CELL_SIZE, CACHE_CELL_SIZE, Color.WHITE);
+    this.stroke(node, CACHE_CELL_SIZE, CACHE_CELL_SIZE, new Color(190, 180, 190, 255));
     this.label(id + '_label', this.bottomLayer, x, y, '空', 20, new Color(110, 100, 110, 255));
     this.cells.push({ id, kind: 'cache', node, x: rootX, y: rootY, unitId: null });
   }
 
   private gridCell(id: string, col: number, row: number, kind: CellKind, text: string, color: Color) {
-    const size = 68;
-    const localX = col * 78;
-    const localY = row * 78;
+    const size = MAP_CELL_SIZE;
+    const localX = col * GRID_GAP;
+    const localY = row * GRID_GAP;
     const rootX = this.mapLayer.position.x + localX;
     const rootY = this.mapLayer.position.y + localY;
     const node = this.rect(id, this.mapLayer, localX, localY, size, size, color);
