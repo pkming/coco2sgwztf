@@ -115,6 +115,7 @@ export class P0BuildAreaBootstrap extends Component {
   private wave = 1;
   private battleStarted = false;
   private waveActive = false;
+  private paused = false;
   private gameFailed = false;
   private enemiesToSpawn = 0;
   private spawnTimer = 0;
@@ -123,6 +124,7 @@ export class P0BuildAreaBootstrap extends Component {
   private lifeValueLabel!: Label;
   private waveLabel!: Label;
   private runStatsLabel!: Label;
+  private pauseLabel!: Label;
   private bottomTipLabel!: Label;
   private draggedUnit: UnitView | null = null;
   private dragOffset = new Vec3();
@@ -136,7 +138,7 @@ export class P0BuildAreaBootstrap extends Component {
   }
 
   update(deltaTime: number) {
-    if (this.gameFailed) return;
+    if (this.gameFailed || this.paused) return;
     this.updateWaveSpawning(deltaTime);
     this.updateEnemies(deltaTime);
     this.updateUnitAttacks(deltaTime);
@@ -176,6 +178,10 @@ export class P0BuildAreaBootstrap extends Component {
 
   private buildTopBar() {
     this.rect('TopBg', this.topLayer, 0, 0, 720, 120, new Color(214, 168, 202, 255));
+    const pauseButton = this.rect('PauseButton', this.topLayer, -320, 18, 70, 48, new Color(230, 138, 54, 255));
+    this.pauseLabel = this.label('PauseButtonLabel', this.topLayer, -320, 18, '暂停', 22, Color.WHITE);
+    pauseButton.on(Node.EventType.TOUCH_END, this.togglePause, this);
+    this.pauseLabel.node.on(Node.EventType.TOUCH_END, this.togglePause, this);
     this.label('FoodIcon', this.topLayer, -260, 18, '包子', 22, Color.WHITE);
     this.foodValueLabel = this.label('FoodValue', this.topLayer, -190, 18, String(this.food), 32, Color.WHITE);
     this.waveLabel = this.label('WaveText', this.topLayer, 0, 18, '第1波', 30, new Color(40, 35, 40, 255));
@@ -277,6 +283,13 @@ export class P0BuildAreaBootstrap extends Component {
 
     this.battleStarted = true;
     this.startWave();
+  }
+
+  private togglePause() {
+    if (this.gameFailed) return;
+    this.paused = !this.paused;
+    if (this.pauseLabel) this.pauseLabel.string = this.paused ? '继续' : '暂停';
+    this.showTip(this.paused ? '已暂停' : '继续战斗');
   }
 
   private startWave() {
@@ -457,37 +470,33 @@ export class P0BuildAreaBootstrap extends Component {
       return;
     }
 
-    this.clearCachePieces();
+    const emptyCacheCells = this.cells.filter((cell) => cell.kind === 'cache' && !cell.unitId);
+    if (emptyCacheCells.length === 0) {
+      this.showTip('底部已满：先拖走、合成或遣散');
+      return;
+    }
+
     this.food -= this.refreshCost;
     this.foodValueLabel.string = String(this.food);
 
-    const cacheCells = this.cells.filter((cell) => cell.kind === 'cache');
-    for (const cell of cacheCells) {
+    for (const cell of emptyCacheCells) {
       this.drawPiece(this.pickRandomPiece(), cell);
     }
 
     const paid = this.refreshCost;
     this.refreshCost = Math.ceil(this.refreshCost * REFRESH_COST_GROWTH);
     this.refreshButtonText();
-    this.showTip('刷新消耗 ' + paid + '：获得5个候选');
-  }
-
-  private clearCachePieces() {
-    const cacheIds = new Set(this.cells.filter((cell) => cell.kind === 'cache').map((cell) => cell.id));
-    for (const cell of this.cells) {
-      if (cell.kind === 'cache') cell.unitId = null;
-    }
-
-    for (const unit of [...this.units]) {
-      if (!cacheIds.has(unit.currentCellId)) continue;
-      if (this.draggedUnit === unit) this.draggedUnit = null;
-      unit.node.destroy();
-      this.units = this.units.filter((item) => item.id !== unit.id);
-    }
+    this.showTip('刷新消耗 ' + paid + '：补充 ' + emptyCacheCells.length + ' 个候选');
   }
 
   private pickRandomPiece(): PieceType {
-    const pool: PieceType[] = ['刀', '弓', '枪', '骑', '铲'];
+    const pool: PieceType[] = [
+      '刀', '刀', '刀', '刀',
+      '弓', '弓', '弓', '弓',
+      '枪', '枪', '枪', '枪',
+      '骑', '骑', '骑',
+      '铲',
+    ];
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
@@ -565,7 +574,7 @@ export class P0BuildAreaBootstrap extends Component {
     if (unit.type === '铲') {
       this.showTip('拖拽铲子到紫色格，解锁为白格');
     } else {
-      this.showTip('拖拽 ' + unit.type + ' Lv' + unit.level + ' 到白格，拖到已有单位可交换');
+      this.showTip('拖动后会优先与任意同类同级合成，也可放到白格');
     }
   }
 
@@ -585,6 +594,12 @@ export class P0BuildAreaBootstrap extends Component {
       return;
     }
 
+    const mergeTarget = this.findGlobalMergeTarget(unit);
+    if (mergeTarget) {
+      this.mergeUnits(unit, mergeTarget);
+      return;
+    }
+
     const target = this.findNearestBuildCell(unit.node.position);
     if (!target) {
       this.returnUnitHome(unit, '只能放到白格');
@@ -594,7 +609,7 @@ export class P0BuildAreaBootstrap extends Component {
     if (target.unitId) {
       const other = this.units.find((item) => item.id === target.unitId);
       if (other && other.type !== '铲' && unit.type !== '铲' && other.type === unit.type && other.level === unit.level) {
-        this.mergeUnits(unit, other, target);
+        this.mergeUnits(unit, other);
         return;
       }
       this.swapUnitWithCell(unit, target);
@@ -635,6 +650,16 @@ export class P0BuildAreaBootstrap extends Component {
     return bestDistance <= DROP_DISTANCE ? best : null;
   }
 
+  private findGlobalMergeTarget(unit: UnitView): UnitView | null {
+    if (unit.type === '铲') return null;
+    for (const other of this.units) {
+      if (other === unit) continue;
+      if (other.type === '铲') continue;
+      if (other.type === unit.type && other.level === unit.level) return other;
+    }
+    return null;
+  }
+
   private findNearestLockedCell(position: Vec3): GridCellView | null {
     let best: GridCellView | null = null;
     let bestDistance = Number.MAX_SAFE_INTEGER;
@@ -659,7 +684,7 @@ export class P0BuildAreaBootstrap extends Component {
     unit.node.setPosition(target.x, target.y, 0);
   }
 
-  private mergeUnits(sourceUnit: UnitView, targetUnit: UnitView, targetCell: GridCellView) {
+  private mergeUnits(sourceUnit: UnitView, targetUnit: UnitView) {
     if (sourceUnit.type === '铲' || targetUnit.type === '铲') {
       this.returnUnitHome(sourceUnit, '铲子不能合成');
       return;
@@ -677,11 +702,7 @@ export class P0BuildAreaBootstrap extends Component {
 
     targetUnit.level += 1;
     this.refreshUnitLabel(targetUnit);
-    targetUnit.node.setPosition(targetCell.x, targetCell.y, 0);
-    targetUnit.homeX = targetCell.x;
-    targetUnit.homeY = targetCell.y;
-    targetUnit.currentCellId = targetCell.id;
-    targetCell.unitId = targetUnit.id;
+    targetUnit.node.setPosition(targetUnit.homeX, targetUnit.homeY, 0);
 
     this.showTip(targetUnit.type + ' 合成成功：Lv' + targetUnit.level);
   }
