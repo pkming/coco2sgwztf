@@ -53,7 +53,6 @@ const ENEMY_HP_GROWTH = 4;
 const BASE_ENEMY_SPEED = 86;
 const ENEMY_SPEED_GROWTH = 2;
 const BASE_ENEMY_COUNT = 3;
-const DISMISS_REFUND = 2;
 const GRID_GAP = 104;
 const MAP_CELL_SIZE = 96;
 const UNIT_SIZE = 86;
@@ -256,7 +255,7 @@ export class P0BuildAreaBootstrap extends Component {
     const recruitButton = this.button('RecruitButton', -215, -28, 150, 74, '刷新\n消耗' + this.refreshCost);
     recruitButton.on(Node.EventType.TOUCH_END, this.refreshShop, this);
 
-    const dismissButton = this.button('DismissButton', 0, -28, 150, 74, '遣散\n返还' + DISMISS_REFUND);
+    const dismissButton = this.button('DismissButton', 0, -28, 150, 74, '遣散\n删除');
     dismissButton.on(Node.EventType.TOUCH_END, this.dismissUnit, this);
 
     const battleButton = this.button('BattleButton', 215, -28, 150, 74, '开始战斗');
@@ -515,9 +514,7 @@ export class P0BuildAreaBootstrap extends Component {
     this.draggedUnit = this.draggedUnit === unit ? null : this.draggedUnit;
     this.units = this.units.filter((item) => item.id !== unit.id);
     unit.node.destroy();
-    this.food += DISMISS_REFUND;
-    this.foodValueLabel.string = String(this.food);
-    this.showTip('遣散 ' + unit.type + ' Lv' + unit.level + '：包子 +' + DISMISS_REFUND);
+    this.showTip('遣散 ' + unit.type + '：释放一个格子');
   }
 
   private findDismissTarget(): UnitView | null {
