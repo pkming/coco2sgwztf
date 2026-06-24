@@ -54,12 +54,12 @@ const BASE_ENEMY_SPEED = 86;
 const ENEMY_SPEED_GROWTH = 2;
 const BASE_ENEMY_COUNT = 3;
 const DISMISS_REFUND = 2;
-const GRID_GAP = 94;
-const MAP_CELL_SIZE = 82;
-const UNIT_SIZE = 74;
-const CACHE_CELL_SIZE = 78;
-const CACHE_GAP = 86;
-const DROP_DISTANCE = 58;
+const GRID_GAP = 104;
+const MAP_CELL_SIZE = 96;
+const UNIT_SIZE = 86;
+const CACHE_CELL_SIZE = 84;
+const CACHE_GAP = 90;
+const DROP_DISTANCE = 66;
 
 const UNIT_CONFIGS: Record<UnitType, UnitBattleConfig> = {
   刀: {
@@ -188,26 +188,26 @@ export class P0BuildAreaBootstrap extends Component {
 
   private drawRouteCells() {
     const routeCells = [
-      [-3, 2], [-2, 2], [-1, 2], [0, 2], [1, 2],
-      [1, 1], [1, 0], [0, 0], [-1, 0],
-      [-1, -1], [-1, -2], [-2, -2], [-3, -2],
+      [-3, -3], [-3, -2], [-3, -1], [-3, 0], [-3, 1], [-3, 2],
+      [-2, 2], [-1, 2], [0, 2], [1, 2], [2, 2], [3, 2],
+      [3, 1], [3, 0], [3, -1], [3, -2], [3, -3],
     ];
 
     for (const [col, row] of routeCells) {
-      this.gridCell('route_' + col + '_' + row, col, row, 'route', '路', new Color(245, 179, 212, 255));
+      this.gridCell('route_' + col + '_' + row, col, row, 'route', '路', new Color(239, 86, 88, 255));
     }
 
     this.enemyPath = routeCells.map(([col, row]) => new Vec3(this.mapLayer.position.x + col * GRID_GAP, this.mapLayer.position.y + row * GRID_GAP, 0));
-    this.label('Entrance', this.mapLayer, -315, 240, '入口', 22, new Color(45, 35, 45, 255));
-    this.label('Exit', this.mapLayer, -315, -240, '终点', 22, new Color(45, 35, 45, 255));
+    this.label('Entrance', this.mapLayer, -312, -390, '入口', 22, new Color(45, 35, 45, 255));
+    this.label('Exit', this.mapLayer, 312, -390, '终点', 22, new Color(45, 35, 45, 255));
   }
 
   private drawLockedCells() {
     const lockedCells = [
-      [-3, 1], [-2, 1], [-1, 1], [0, 1],
-      [-3, 0], [-2, 0], [2, 0], [3, 0],
-      [-3, -1], [-2, -1], [0, -1], [1, -1],
-      [0, -2], [1, -2], [2, -2], [3, -2],
+      [-3, 3], [-2, 3], [-1, 3], [0, 3],
+      [-2, 1], [-2, 0], [-2, -1],
+      [2, 1], [2, 0], [2, -1],
+      [-1, -2], [0, -2], [1, -2], [2, -2],
     ];
 
     for (const [col, row] of lockedCells) {
@@ -217,25 +217,22 @@ export class P0BuildAreaBootstrap extends Component {
 
   private drawBuildCells() {
     const buildCells = [
-      [-1, 4], [0, 4], [1, 4],
-      [-1, 3], [0, 3], [1, 3],
-      [-1, -4], [0, -4], [1, -4],
-      [-1, -3], [0, -3], [1, -3],
+      [-1, 1], [0, 1], [1, 1],
+      [-1, 0], [0, 0], [1, 0],
     ];
 
     for (const [col, row] of buildCells) {
       this.gridCell('build_' + col + '_' + row, col, row, 'build', '空', Color.WHITE);
     }
 
-    this.label('BuildTopLabel', this.mapLayer, 0, 420, '上布阵区：白格可放兵', 20, new Color(65, 45, 60, 255));
-    this.label('BuildBottomLabel', this.mapLayer, 0, -420, '下布阵区：白格可放兵', 20, new Color(65, 45, 60, 255));
+    this.label('BuildTopLabel', this.mapLayer, 0, 170, '已解锁：白格可放兵', 20, new Color(65, 45, 60, 255));
+    this.label('BuildBottomLabel', this.mapLayer, 0, -145, '外圈红紫格可铲地解锁', 20, new Color(65, 45, 60, 255));
   }
 
   private drawLegend() {
-    this.rect('LegendBg', this.mapLayer, 0, -5, 220, 94, new Color(255, 255, 255, 190));
-    this.label('Legend1', this.mapLayer, 0, 24, '白格=可放兵', 18, new Color(45, 35, 45, 255));
-    this.label('Legend2', this.mapLayer, 0, -2, '红格=点击铲地', 18, new Color(45, 35, 45, 255));
-    this.label('Legend3', this.mapLayer, 0, -28, '粉格=敌人路线', 18, new Color(45, 35, 45, 255));
+    this.rect('LegendBg', this.mapLayer, 0, -392, 260, 66, new Color(255, 255, 255, 190));
+    this.label('Legend1', this.mapLayer, 0, -374, '白=放兵  紫=解锁  红=路线', 18, new Color(45, 35, 45, 255));
+    this.label('Legend2', this.mapLayer, 0, -400, '先守中间，再向外铲地', 18, new Color(45, 35, 45, 255));
   }
 
   private buildRecruitAndActions() {
