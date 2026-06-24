@@ -35,7 +35,17 @@ interface EnemyView {
 }
 
 const START_LIFE = 3;
-const EXPAND_COST = 20;
+const START_FOOD = 60;
+const RECRUIT_COST = 10;
+const BASE_EXPAND_COST = 20;
+const EXPAND_COST_STEP = 5;
+const KILL_REWARD = 6;
+const WAVE_CLEAR_REWARD = 12;
+const BASE_ENEMY_HP = 18;
+const ENEMY_HP_GROWTH = 4;
+const BASE_ENEMY_SPEED = 86;
+const ENEMY_SPEED_GROWTH = 2;
+const BASE_ENEMY_COUNT = 3;
 
 @ccclass('P0BuildAreaBootstrap')
 export class P0BuildAreaBootstrap extends Component {
@@ -46,9 +56,10 @@ export class P0BuildAreaBootstrap extends Component {
   private cells: GridCellView[] = [];
   private units: UnitView[] = [];
   private enemies: EnemyView[] = [];
-  private food = 50;
+  private food = START_FOOD;
   private life = START_LIFE;
-  private recruitCost = 10;
+  private recruitCost = RECRUIT_COST;
+  private expandedCount = 0;
   private nextUnitId = 1;
   private nextEnemyId = 1;
   private wave = 1;
@@ -191,7 +202,7 @@ export class P0BuildAreaBootstrap extends Component {
       this.cacheCell('cache_' + index, x, 82);
     }
 
-    const recruitButton = this.button('RecruitButton', -160, -28, 190, 74, '征兵\n消耗10');
+    const recruitButton = this.button('RecruitButton', -160, -28, 190, 74, '征兵\n消耗' + RECRUIT_COST);
     recruitButton.on(Node.EventType.TOUCH_END, this.recruitUnit, this);
 
     const battleButton = this.button('BattleButton', 160, -28, 190, 74, '开始战斗');
@@ -217,7 +228,7 @@ export class P0BuildAreaBootstrap extends Component {
 
   private startWave() {
     this.waveActive = true;
-    this.enemiesToSpawn = 2 + this.wave;
+    this.enemiesToSpawn = BASE_ENEMY_COUNT + this.wave - 1;
     this.spawnTimer = 0;
     this.waveLabel.string = '第' + this.wave + '波';
     this.showTip('第' + this.wave + '波开始：本波敌人 ' + this.enemiesToSpawn + ' 个');
@@ -238,11 +249,11 @@ export class P0BuildAreaBootstrap extends Component {
     if (!this.waveActive || this.enemiesToSpawn > 0 || this.enemies.length > 0) return;
 
     this.waveActive = false;
-    this.food += 10;
+    this.food += WAVE_CLEAR_REWARD;
     this.foodValueLabel.string = String(this.food);
     this.wave += 1;
     this.waveLabel.string = '第' + this.wave + '波';
-    this.showTip('波次清空：包子 +10，自动进入第' + this.wave + '波');
+    this.showTip('波次清空：包子 +' + WAVE_CLEAR_REWARD + '，自动进入第' + this.wave + '波');
     this.startWave();
   }
 
@@ -253,9 +264,10 @@ export class P0BuildAreaBootstrap extends Component {
     this.nextEnemyId += 1;
     const node = this.rect(id, this.root, start.x, start.y, 46, 46, new Color(35, 35, 38, 255));
     this.label(id + '_label', node, 0, 8, '兵', 18, Color.WHITE);
-    const hp = 20;
+    const hp = BASE_ENEMY_HP + (this.wave - 1) * ENEMY_HP_GROWTH;
     const label = this.label(id + '_hp', node, 0, -14, String(hp), 13, Color.WHITE);
-    this.enemies.push({ id, node, label, pathIndex: 0, speed: 95, hp });
+    const speed = BASE_ENEMY_SPEED + (this.wave - 1) * ENEMY_SPEED_GROWTH;
+    this.enemies.push({ id, node, label, pathIndex: 0, speed, hp });
   }
 
   private updateEnemies(deltaTime: number) {
@@ -358,9 +370,9 @@ export class P0BuildAreaBootstrap extends Component {
     const index = this.enemies.indexOf(enemy);
     if (index >= 0) this.enemies.splice(index, 1);
     enemy.node.destroy();
-    this.food += 5;
+    this.food += KILL_REWARD;
     this.foodValueLabel.string = String(this.food);
-    this.showTip('击杀敌人：包子 +5');
+    this.showTip('击杀敌人：包子 +' + KILL_REWARD);
   }
 
   private recruitUnit() {
@@ -559,7 +571,7 @@ export class P0BuildAreaBootstrap extends Component {
     const rootY = this.mapLayer.position.y + localY;
     const node = this.rect(id, this.mapLayer, localX, localY, size, size, color);
     this.stroke(node, size, size, new Color(150, 105, 135, 255));
-    const labelText = kind === 'locked' ? '铲' + EXPAND_COST : text;
+    const labelText = kind === 'locked' ? '铲' + this.getExpandCost() : text;
     const cellLabel = this.label(id + '_label', this.mapLayer, localX, localY, labelText, 20, new Color(75, 55, 70, 255));
     const cell: GridCellView = { id, kind, node, x: rootX, y: rootY, unitId: null };
     this.cells.push(cell);
@@ -578,17 +590,31 @@ export class P0BuildAreaBootstrap extends Component {
 
     if (cell.kind !== 'locked') return;
 
-    if (this.food < EXPAND_COST) {
-      this.showTip('包子不足：扩地需要 ' + EXPAND_COST);
+    const cost = this.getExpandCost();
+    if (this.food < cost) {
+      this.showTip('包子不足：扩地需要 ' + cost);
       return;
     }
 
-    this.food -= EXPAND_COST;
+    this.food -= cost;
     this.foodValueLabel.string = String(this.food);
     cell.kind = 'build';
+    this.expandedCount += 1;
     this.repaintCell(cell, Color.WHITE, new Color(190, 180, 190, 255));
     this.setCellLabel(cell, '空', new Color(75, 55, 70, 255));
-    this.showTip('扩地成功：+1 布阵位');
+    this.refreshLockedCellLabels();
+    this.showTip('扩地成功：-' + cost + ' 包子，+1 布阵位');
+  }
+
+  private getExpandCost(): number {
+    return BASE_EXPAND_COST + this.expandedCount * EXPAND_COST_STEP;
+  }
+
+  private refreshLockedCellLabels() {
+    const labelText = '铲' + this.getExpandCost();
+    for (const cell of this.cells) {
+      if (cell.kind === 'locked') this.setCellLabel(cell, labelText, new Color(75, 55, 70, 255));
+    }
   }
 
   private repaintCell(cell: GridCellView, fillColor: Color, strokeColor: Color) {
