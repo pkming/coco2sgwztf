@@ -176,7 +176,7 @@
     "_priority": 0,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 505.0094161958569,
+    "_orthoHeight": 504.0601503759398,
     "_near": 0,
     "_far": 2000,
     "_color": {
@@ -289,7 +289,7 @@
     "_id": "c5V1EV8IpMtrIvY1OE9t2u"
   },
   {
-    "__type__": "3d72cjuh5RCjquvjdysCY/g",
+    "__type__": "7c85dqZ+2JOyprz9SV9hNoO",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -298,7 +298,7 @@
     },
     "_enabled": true,
     "__prefab": null,
-    "_id": "58eVh+cXhInYihKgbv2Rrx"
+    "_id": "bdimM2fj1B7K0jqZjMJrUG"
   },
   {
     "__type__": "cc.SceneGlobals",
