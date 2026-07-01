@@ -1,4 +1,5 @@
 import { _decorator, Camera, Canvas, Color, Component, EventTouch, Graphics, Label, LabelOutline, Layers, Node, resources, Sprite, SpriteFrame, tween, UITransform, Vec3, view } from 'cc';
+import { GameBootstrap } from './GameBootstrap';
 
 const { ccclass } = _decorator;
 
@@ -76,6 +77,7 @@ const SPEAR_PIERCE_CELLS = 2;
 const SPEAR_PIERCE_WIDTH = 42;
 const BACKGROUND_COVER_WIDTH = 1920;
 const BACKGROUND_COVER_HEIGHT = 1280;
+const UNIT_ART_SIZE = 92;
 
 const UNIT_CONFIGS: Record<UnitType, UnitBattleConfig> = {
   刀: {
@@ -128,6 +130,11 @@ const PIECE_COLORS: Record<PieceType, Color> = {
   枪: new Color(55, 128, 80, 255),
   骑: new Color(176, 132, 48, 255),
   铲: new Color(116, 82, 54, 255),
+};
+
+const UNIT_ART_PATHS: Partial<Record<UnitType, string>> = {
+  刀: 'unit/dao_soldier/dao_soldier_lv',
+  骑: 'unit/cavalry/cavalry_lv',
 };
 
 const UI_COLORS = {
@@ -189,15 +196,17 @@ export class P0BuildAreaBootstrap extends Component {
   private hasDraggedUnit = false;
 
   start() {
-    console.log('[文字三国] P0BuildAreaBootstrap start');
-    this.node.removeAllChildren();
-    view.setDesignResolutionSize(720, 1280, 2);
-    this.ensureCanvas();
-    this.buildStaticPage();
+    console.log('[文字三国] P0BuildAreaBootstrap detected, redirect to GameBootstrap');
+    this.enabled = false;
+    let gameBootstrap = this.node.getComponent(GameBootstrap);
+    if (!gameBootstrap) {
+      gameBootstrap = this.node.addComponent(GameBootstrap);
+    }
+    gameBootstrap.enabled = true;
   }
 
   update(deltaTime: number) {
-    if (this.gameFailed || this.paused) return;
+    if (!this.enabled || this.gameFailed || this.paused) return;
     this.updateWaveBreak(deltaTime);
     this.updateWaveSpawning(deltaTime);
     this.updateEnemies(deltaTime);
@@ -691,14 +700,14 @@ export class P0BuildAreaBootstrap extends Component {
     const hitEnemies = this.enemies.filter((enemy) => Vec3.distance(enemy.node.position, unitPosition) <= range);
     this.showCavalrySweep(unitPosition, target.node.position, range);
     for (const enemy of hitEnemies) {
-      if (this.enemies.includes(enemy)) this.damageEnemy(enemy, damage, '骑');
+      if (this.enemies.indexOf(enemy) >= 0) this.damageEnemy(enemy, damage, '骑');
     }
   }
 
   private pierceEnemies(unit: UnitView, target: EnemyView, damage: number) {
     const hitEnemies = this.findSpearPierceTargets(unit, target);
     for (const enemy of hitEnemies) {
-      if (this.enemies.includes(enemy)) this.damageEnemy(enemy, damage, '枪');
+      if (this.enemies.indexOf(enemy) >= 0) this.damageEnemy(enemy, damage, '枪');
     }
   }
 
@@ -730,7 +739,7 @@ export class P0BuildAreaBootstrap extends Component {
       .sort((a, b) => a.forwardDistance - b.forwardDistance);
 
     const result = candidates.map((item) => item.enemy);
-    return result.includes(target) ? result : [target, ...result.filter((enemy) => enemy !== target)];
+    return result.indexOf(target) >= 0 ? result : [target, ...result.filter((enemy) => enemy !== target)];
   }
 
   private damageEnemy(enemy: EnemyView, damage: number, unitType: UnitType) {
@@ -967,7 +976,12 @@ export class P0BuildAreaBootstrap extends Component {
     };
     this.nextUnitId += 1;
     cell.unitId = unit.id;
-    this.label(unit.id + '_label', unit.node, 0, 10, pieceType, 34, Color.WHITE);
+    if (this.hasUnitArt(pieceType)) {
+      this.unitArt(unit.id + '_art', unit.node, pieceType, unit.level);
+      this.label(unit.id + '_label', unit.node, -27, 25, pieceType, 18, Color.WHITE);
+    } else {
+      this.label(unit.id + '_label', unit.node, 0, 10, pieceType, 34, Color.WHITE);
+    }
     this.label(unit.id + '_level', unit.node, 0, -25, pieceType === '铲' ? '开地' : 'Lv1', 15, new Color(255, 238, 198, 255));
     unit.node.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onUnitTouchStart(event, unit), this);
     unit.node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => this.onUnitTouchMove(event, unit), this);
@@ -1028,7 +1042,7 @@ export class P0BuildAreaBootstrap extends Component {
 
     if (target.unitId) {
       const other = this.units.find((item) => item.id === target.unitId);
-      if (other && other.type !== '铲' && unit.type !== '铲' && other.type === unit.type && other.level === unit.level) {
+      if (other && other.type !== '铲' && other.type === unit.type && other.level === unit.level) {
         this.mergeUnits(unit, other);
         return;
       }
@@ -1138,6 +1152,7 @@ export class P0BuildAreaBootstrap extends Component {
     const levelNode = unit.node.getChildByName(unit.id + '_level');
     const levelLabel = levelNode?.getComponent(Label);
     if (levelLabel) levelLabel.string = 'Lv' + unit.level;
+    this.refreshUnitArt(unit);
   }
 
   private swapUnitWithCell(unit: UnitView, target: GridCellView) {
@@ -1283,9 +1298,50 @@ export class P0BuildAreaBootstrap extends Component {
 
   private pieceCard(name: string, parent: Node, x: number, y: number, pieceType: PieceType): Node {
     const outer = this.framedRect(name, parent, x, y, UNIT_SIZE, UNIT_SIZE, new Color(52, 42, 38, 255), new Color(24, 20, 18, 255), 4);
-    this.rect(name + '_face', outer, 0, 0, UNIT_SIZE - 14, UNIT_SIZE - 14, PIECE_COLORS[pieceType]);
-    this.stroke(outer.getChildByName(name + '_face')!, UNIT_SIZE - 14, UNIT_SIZE - 14, new Color(235, 210, 157, 255), 2);
+    const faceColor = this.hasUnitArt(pieceType) ? new Color(37, 31, 28, 206) : PIECE_COLORS[pieceType];
+    this.rect(name + '_face', outer, 0, 0, UNIT_SIZE - 14, UNIT_SIZE - 14, faceColor);
+    this.stroke(outer.getChildByName(name + '_face')!, UNIT_SIZE - 14, UNIT_SIZE - 14, new Color(235, 210, 157, this.hasUnitArt(pieceType) ? 120 : 255), 2);
     return outer;
+  }
+
+  private hasUnitArt(pieceType: PieceType): pieceType is UnitType {
+    return pieceType !== '铲' && UNIT_ART_PATHS[pieceType] !== undefined;
+  }
+
+  private getUnitArtPath(unitType: UnitType, level: number): string | null {
+    const basePath = UNIT_ART_PATHS[unitType];
+    if (!basePath) return null;
+    const safeLevel = Math.max(1, Math.min(5, level));
+    return basePath + safeLevel + '/spriteFrame';
+  }
+
+  private unitArt(name: string, parent: Node, pieceType: PieceType, level: number): Node | null {
+    if (!this.hasUnitArt(pieceType)) return null;
+    const node = this.nodeOnly(name, parent, 0, 7, UNIT_ART_SIZE, UNIT_ART_SIZE);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    this.loadUnitArt(sprite, pieceType, level);
+    return node;
+  }
+
+  private refreshUnitArt(unit: UnitView) {
+    if (!this.hasUnitArt(unit.type)) return;
+    const art = unit.node.getChildByName(unit.id + '_art');
+    const sprite = art?.getComponent(Sprite);
+    if (!sprite) return;
+    this.loadUnitArt(sprite, unit.type, unit.level);
+  }
+
+  private loadUnitArt(sprite: Sprite, unitType: UnitType, level: number) {
+    const resourcePath = this.getUnitArtPath(unitType, level);
+    if (!resourcePath) return;
+    resources.load(resourcePath, SpriteFrame, (err, spriteFrame) => {
+      if (err || !spriteFrame || !sprite.isValid) {
+        console.warn('[文字三国] 单位资源加载失败', resourcePath, err);
+        return;
+      }
+      sprite.spriteFrame = spriteFrame;
+    });
   }
 
   private enemyCard(name: string, x: number, y: number, enemyType: EnemyType): Node {
